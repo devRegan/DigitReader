@@ -21,8 +21,6 @@ def preprocess_image(image):
     else:
         img = image
     
-    original_size = img.size
-    
     if img.mode == 'RGBA':
         alpha = np.array(img.split()[3])
         if np.mean(alpha) < 250:
@@ -45,49 +43,49 @@ def preprocess_image(image):
     else:
         gray = img_array
     
-    gray_copy = gray.copy()
+    gray = cv2.medianBlur(gray, 3)
     
-    _, binary = cv2.threshold(gray_copy, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    gray = cv2.bilateralFilter(gray, 9, 75, 75)
+    
+    mean_intensity = np.mean(gray)
+    if mean_intensity > 127:
+        gray = 255 - gray
+    
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
+    gray = clahe.apply(gray)
+    
+    kernel = np.ones((2,2), np.uint8)
+    gray = cv2.morphologyEx(gray, cv2.MORPH_CLOSE, kernel, iterations=1)
+    
+    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     
     contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
     if contours:
         largest_contour = max(contours, key=cv2.contourArea)
         x, y, w, h = cv2.boundingRect(largest_contour)
-        
-        margin = int(max(w, h) * 0.1)
+        margin = int(max(w, h) * 0.15)
         x = max(0, x - margin)
         y = max(0, y - margin)
-        w = min(gray.shape[1] - x, w + 2 * margin)
-        h = min(gray.shape[0] - y, h + 2 * margin)
-        
-        gray = gray[y:y+h, x:x+w]
+        w = min(binary.shape[1] - x, w + 2 * margin)
+        h = min(binary.shape[0] - y, h + 2 * margin)
+        binary = binary[y:y+h, x:x+w]
     
-    mean_intensity = np.mean(gray)
-    
-    if mean_intensity > 127:
-        gray = 255 - gray
-    
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(4,4))
-    gray = clahe.apply(gray)
-    
-    max_dim = max(gray.shape)
-    square = np.ones((max_dim, max_dim), dtype=np.uint8) * 255
-    y_offset = (max_dim - gray.shape[0]) // 2
-    x_offset = (max_dim - gray.shape[1]) // 2
-    square[y_offset:y_offset+gray.shape[0], x_offset:x_offset+gray.shape[1]] = gray
+    max_dim = max(binary.shape)
+    square = np.zeros((max_dim, max_dim), dtype=np.uint8)
+    y_offset = (max_dim - binary.shape[0]) // 2
+    x_offset = (max_dim - binary.shape[1]) // 2
+    square[y_offset:y_offset+binary.shape[0], x_offset:x_offset+binary.shape[1]] = binary
     
     resized = cv2.resize(square, config.IMAGE_SIZE, interpolation=cv2.INTER_AREA)
     
-    kernel = np.ones((2,2), np.uint8)
-    resized = cv2.morphologyEx(resized, cv2.MORPH_CLOSE, kernel)
+    kernel_dilate = np.ones((2,2), np.uint8)
+    resized = cv2.dilate(resized, kernel_dilate, iterations=1)
     
     if config.NORMALIZE:
         resized = resized.astype(np.float32) / 255.0
     
-    flattened = resized.flatten()
-    
-    return flattened.reshape(1, -1)
+    return resized.flatten().reshape(1, -1)
 
 def predict_digit(model, image):
     processed = preprocess_image(image)
