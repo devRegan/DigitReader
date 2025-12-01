@@ -1,3 +1,7 @@
+### Train the model
+```bash
+python train.py
+```
 ### Run the Model
 ### GUI
 ```bash
